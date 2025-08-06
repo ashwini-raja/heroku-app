@@ -1,3 +1,4 @@
+
 package main
 
 import (
@@ -106,13 +107,14 @@ func main() {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
+		req.Header.Add("Content-Type", "application/json")
 
 		// Add authorization header with dyno ID as bearer token
 		if dynoID != "" {
-			req.Header.Set("Authorization", "Bearer "+dynoID)
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", dynoID))
+//			req.Header.Set("Authorization", "Bearer "+dynoID)
 			if redisClient != nil {
-				redisClient.Set(context.Background(), "dynoID", dynoID[:10], 0)
+				redisClient.Set(context.Background(), "dynoID", dynoID, 0)
 			}
 		} else {
 			if redisClient != nil {
