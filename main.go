@@ -1,14 +1,49 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/heroku/x/dynoid"
+	"github.com/redis/go-redis/v9"
 )
+
+var redisClient *redis.Client
+
+func init() {
+	// Get Redis URL from environment variable
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		log.Println("REDIS_URL not set, Redis functionality will be disabled")
+		return
+	}
+
+	// Parse Redis URL and create client
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Printf("Error parsing REDIS_URL: %v", err)
+		return
+	}
+
+	redisClient = redis.NewClient(opts)
+
+	// Test the connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = redisClient.Ping(ctx).Result()
+	if err != nil {
+		log.Printf("Error connecting to Redis: %v", err)
+		redisClient = nil
+	} else {
+		log.Println("Successfully connected to Redis")
+	}
+}
 
 func main() {
 	// Get port from environment variable (Heroku sets PORT)
@@ -20,12 +55,38 @@ func main() {
 	// Define routes
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Get dyno ID using the heroku/x/dynoid package
-		// Using "applink.staging.herokudev.com" as the audience
+		// Using "applink" as the audience
 		dynoID, err := dynoid.ReadLocal("applink")
 		if err != nil {
 			log.Printf("Error getting dyno ID: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
+		}
+
+		// Redis operations
+		var redisInfo string
+		if redisClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Increment a counter
+			counter, err := redisClient.Incr(ctx, "request_counter").Result()
+			if err != nil {
+				log.Printf("Redis error: %v", err)
+				redisInfo = "Redis error occurred"
+			} else {
+				// Store dyno ID with timestamp
+				timestamp := time.Now().Format(time.RFC3339)
+				key := fmt.Sprintf("dyno:%s:last_request", dynoID)
+				err = redisClient.Set(ctx, key, timestamp, 24*time.Hour).Err()
+				if err != nil {
+					log.Printf("Redis set error: %v", err)
+				}
+
+				redisInfo = fmt.Sprintf("Request #%d from dyno %s at %s", counter, dynoID, timestamp)
+			}
+		} else {
+			redisInfo = "Redis not available"
 		}
 
 		// Create HTTP client
@@ -43,9 +104,9 @@ func main() {
 		if dynoID != "" {
 			req.Header.Set("Authorization", "Bearer "+dynoID)
 			req.Header.Set("Content-Type", "application/json")
-			fmt.Println("dynoID ", dynoID[:10])
+			redisClient.Set(context.Background(), "dynoID", dynoID[:10], 0)
 		} else {
-			fmt.Println("dynoID is empty")
+			redisClient.Set(context.Background(), "dynoID", "unknown", 0)
 		}
 
 		// Make the request
@@ -65,16 +126,29 @@ func main() {
 			return
 		}
 
+		// Create response with Redis info
+		response := fmt.Sprintf("External API Response: %s\n\nRedis Info: %s", string(body), redisInfo)
+
 		// Set response headers
 		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(resp.StatusCode)
+		w.WriteHeader(http.StatusOK)
 
 		// Write response body
-		w.Write(body)
+		w.Write([]byte(response))
 	})
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "OK")
+		status := "OK"
+		if redisClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			_, err := redisClient.Ping(ctx).Result()
+			if err != nil {
+				status = "Redis connection failed"
+			}
+		}
+		fmt.Fprintf(w, status)
 	})
 
 	// Start server
