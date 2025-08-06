@@ -1,6 +1,6 @@
 # Heroku Go App
 
-A simple Go web application ready for Heroku deployment.
+A simple Go web application ready for Heroku deployment that makes authenticated requests to external services.
 
 ## Local Development
 
@@ -38,12 +38,23 @@ A simple Go web application ready for Heroku deployment.
 
 ## Project Structure
 
-- `main.go` - Main Go application
+- `main.go` - Main Go application with dynoid authentication
 - `Procfile` - Tells Heroku how to run the app
-- `go.mod` - Go module file
+- `go.mod` - Go module file with dependencies
 - `README.md` - This file
 
 ## Endpoints
 
-- `/` - Main page
-- `/health` - Health check endpoint 
+- `/` - Makes authenticated GET request to https://applink.staging.herokudev.com
+- `/health` - Health check endpoint
+
+## Authentication
+
+The application uses the `github.com/heroku/x/dynoid` package to:
+- Read the local dyno ID token
+- Use it as a Bearer token in the Authorization header
+- Authenticate requests to external services
+
+## Dependencies
+
+- `github.com/heroku/x/dynoid` - For reading dyno ID tokens 
