@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -28,6 +29,13 @@ func init() {
 	if err != nil {
 		log.Printf("Error parsing REDIS_URL: %v", err)
 		return
+	}
+
+	// Configure TLS for secure Redis connections (like Heroku Redis)
+	if opts.TLSConfig != nil {
+		opts.TLSConfig = &tls.Config{
+			InsecureSkipVerify: true, // Skip certificate verification for Heroku Redis
+		}
 	}
 
 	redisClient = redis.NewClient(opts)
@@ -58,9 +66,8 @@ func main() {
 		// Using "applink" as the audience
 		dynoID, err := dynoid.ReadLocal("applink")
 		if err != nil {
-			log.Printf("Error getting dyno ID: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
+			log.Printf("Error getting dyno ID (running locally?): %v", err)
+			dynoID = "local-dev" // Use a default value for local development
 		}
 
 		// Redis operations
@@ -104,9 +111,13 @@ func main() {
 		if dynoID != "" {
 			req.Header.Set("Authorization", "Bearer "+dynoID)
 			req.Header.Set("Content-Type", "application/json")
-			redisClient.Set(context.Background(), "dynoID", dynoID[:10], 0)
+			if redisClient != nil {
+				redisClient.Set(context.Background(), "dynoID", dynoID[:10], 0)
+			}
 		} else {
-			redisClient.Set(context.Background(), "dynoID", "unknown", 0)
+			if redisClient != nil {
+				redisClient.Set(context.Background(), "dynoID", "unknown", 0)
+			}
 		}
 
 		// Make the request
