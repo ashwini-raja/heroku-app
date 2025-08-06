@@ -43,6 +43,9 @@ func main() {
 		if dynoID != "" {
 			req.Header.Set("Authorization", "Bearer "+dynoID)
 			req.Header.Set("Content-Type", "application/json")
+			fmt.Println("dynoID ", dynoID[:10])
+		} else {
+			fmt.Println("dynoID is empty")
 		}
 
 		// Make the request
