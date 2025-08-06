@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -65,10 +64,10 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Get dyno ID using the heroku/x/dynoid package
 		// Using "applink" as the audience
-		dynoID, err := dynoid.ReadLocal("applink")
+		token, err := dynoid.ReadLocal("applink")
 		if err != nil {
 			log.Printf("Error getting dyno ID (running locally?): %v", err)
-			dynoID = "local-dev" // Use a default value for local development
+			token = "local-dev" // Use a default value for local development
 		}
 
 		// Redis operations
@@ -85,13 +84,13 @@ func main() {
 			} else {
 				// Store dyno ID with timestamp
 				timestamp := time.Now().Format(time.RFC3339)
-				key := fmt.Sprintf("dyno:%s:last_request", dynoID)
+				key := fmt.Sprintf("dyno:%s:last_request", token)
 				err = redisClient.Set(ctx, key, timestamp, 24*time.Hour).Err()
 				if err != nil {
 					log.Printf("Redis set error: %v", err)
 				}
 
-				redisInfo = fmt.Sprintf("Request #%d from dyno %s at %s", counter, dynoID, timestamp)
+				redisInfo = fmt.Sprintf("Request #%d from dyno %s at %s", counter, token, timestamp)
 			}
 		} else {
 			redisInfo = "Redis not available"
@@ -108,13 +107,14 @@ func main() {
 			return
 		}
 		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("User-Agent", "heroku-app/1.0")
 
 		// Add authorization header with dyno ID as bearer token
-		if dynoID != "" {
-			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", dynoID))
-//			req.Header.Set("Authorization", "Bearer "+dynoID)
+		if token != "" {
+			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+			//			req.Header.Set("Authorization", "Bearer "+dynoID)
 			if redisClient != nil {
-				redisClient.Set(context.Background(), "dynoID", dynoID, 0)
+				redisClient.Set(context.Background(), "dynoID", token, 0)
 			}
 		} else {
 			if redisClient != nil {
